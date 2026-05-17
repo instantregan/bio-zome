@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bio Zoom</title>
+<style>
+  :root {
+    --bg: #000;
+    --fg: #eee;
+    --muted: #888;
+    --bar: #0c0c0c;
+    --bar-border: #1d1d1d;
+    --accent: #6cf;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #app {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
+  }
+  /* === topbar / caption === */
+  #topbar {
+    background: var(--bar);
+    border-bottom: 1px solid var(--bar-border);
+    padding: 10px 14px;
+    display: grid;
+    grid-template-columns: 40px 1fr 40px;
+    gap: 10px;
+    align-items: center;
+    max-height: 35vh;
+    overflow-y: auto;
+  }
+  #caption { min-width: 0; line-height: 1.45; }
+  #post-text { font-size: 14px; white-space: pre-wrap; word-wrap: break-word; }
+  #alt-text {
+    font-size: 13px; color: #bdbdbd;
+    margin-top: 5px; white-space: pre-wrap; word-wrap: break-word;
+    border-left: 2px solid #333; padding-left: 8px;
+  }
+  #alt-text:empty { display: none; }
+  #meta {
+    font-size: 11px; color: var(--muted); margin-top: 6px;
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  }
+  #meta a { color: var(--accent); text-decoration: none; }
+  #meta a:hover { text-decoration: underline; }
+  .nav-btn {
+    background: transparent; color: var(--fg); border: none;
+    font-size: 28px; line-height: 1; cursor: pointer; padding: 6px 4px;
+    border-radius: 4px; user-select: none;
+  }
+  .nav-btn:hover { background: #1c1c1c; }
+  .nav-btn:disabled { color: #333; cursor: default; }
+  .nav-btn:disabled:hover { background: transparent; }
+
+  /* === stage === */
+  #stage {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #050505;
+  }
+  #photo {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+    cursor: zoom-in;
+    transition: opacity 0.12s;
+  }
+  #photo.loading { opacity: 0.25; }
+  #photo.zoomed {
+    max-width: none; max-height: none;
+    cursor: grab;
+    position: relative;
+  }
+  #photo.zoomed.dragging { cursor: grabbing; }
+  #counter {
+    position: absolute;
+    bottom: 10px; right: 14px;
+    background: rgba(0,0,0,0.55);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    color: #ddd;
+  }
+  #loading {
+    position: absolute;
+    top: 12px; left: 14px;
+    color: var(--muted);
+    background: rgba(0,0,0,0.5);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  #loading.show { opacity: 1; }
+  #help {
+    position: absolute;
+    bottom: 10px; left: 14px;
+    color: #555;
+    font-size: 11px;
+    pointer-events: none;
+    user-select: none;
+  }
+  #toast {
+    position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  #toast.show { opacity: 1; }
+
+  /* === progress === */
+  #progressbar {
+    height: 3px;
+    background: #111;
+    position: relative;
+  }
+  #progressbar > div {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.15s;
+  }
+
+  /* === settings === */
+  #settings {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: rgba(10,10,10,0.95);
+    border: 1px solid #2a2a2a;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    display: none;
+    z-index: 10;
+  }
+  #settings.show { display: block; }
+  #settings label { display: block; margin-bottom: 6px; }
+  #handle-input {
+    background: #1a1a1a; color: #fff; border: 1px solid #333;
+    padding: 4px 8px; border-radius: 3px; font-family: inherit;
+    width: 240px; margin-left: 4px;
+  }
+  #handle-go {
+    background: #2a2a2a; color: #fff; border: 1px solid #444;
+    padding: 4px 10px; border-radius: 3px; cursor: pointer;
+    font-family: inherit; margin-left: 6px;
+  }
+  #handle-go:hover { background: #3a3a3a; }
+
+  /* hide-caption mode */
+  body.no-caption #topbar { display: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <button id="prev-btn" class="nav-btn" title="Previous (←)">‹</button>
+    <div id="caption">
+      <div id="post-text"></div>
+      <div id="alt-text"></div>
+      <div id="meta"></div>
+    </div>
+    <button id="next-btn" class="nav-btn" title="Next (→)">›</button>
+  </div>
+  <div id="stage">
+    <img id="photo" alt="">
+    <div id="counter"></div>
+    <div id="loading">Loading…</div>
+    <div id="toast"></div>
+    <div id="help">← → nav · Z zoom · C caption · F fullscreen · S handle · Home/End first/last</div>
+  </div>
+  <div id="progressbar"><div></div></div>
+</div>
+
+<div id="settings">
+  <label>Handle: <input id="handle-input" type="text" placeholder="bioreconstruct.bsky.social"></label>
+  <button id="handle-go">Reload</button>
+</div>
+
+<script>
+"use strict";
+
+// === config ===
+const PUBLIC_API = "https://public.api.bsky.app/xrpc";
+const DEFAULT_HANDLE = "bioreconstruct.bsky.social";
+const PAGE_LIMIT = 100;
+const PREFETCH_AHEAD = 3;
+const LOAD_MORE_THRESHOLD = 10;
+
+// === state ===
+let handle = localStorage.getItem("bz_handle") || DEFAULT_HANDLE;
+let images = [];
+let currentIdx = 0;
+let cursor = null;
+let loading = false;
+let exhausted = false;
+
+// === elements ===
+const $ = (id) => document.getElementById(id);
+const photoEl = $("photo");
+const postTextEl = $("post-text");
+const altTextEl = $("alt-text");
+const metaEl = $("meta");
+const counterEl = $("counter");
+const loadingEl = $("loading");
+const progressEl = $("progressbar").firstElementChild;
+const prevBtn = $("prev-btn");
+const nextBtn = $("next-btn");
+const settingsEl = $("settings");
+const handleInput = $("handle-input");
+const toastEl = $("toast");
+
+// === api ===
+async function fetchFeed(cur) {
+  const url = new URL(PUBLIC_API + "/app.bsky.feed.getAuthorFeed");
+  url.searchParams.set("actor", handle);
+  url.searchParams.set("limit", String(PAGE_LIMIT));
+  url.searchParams.set("filter", "posts_with_media");
+  if (cur) url.searchParams.set("cursor", cur);
+  const r = await fetch(url.toString());
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error("HTTP " + r.status + " " + body.slice(0, 200));
+  }
+  return r.json();
+}
+
+function postUrlFor(authorHandle, atUri) {
+  const rkey = atUri.split("/").pop();
+  return "https://bsky.app/profile/" + authorHandle + "/post/" + rkey;
+}
+
+function flatten(feed) {
+  const out = [];
+  for (const item of feed) {
+    const post = item && item.post;
+    if (!post || !post.embed) continue;
+    let imgs = null;
+    const e = post.embed;
+    if (e.$type === "app.bsky.embed.images#view") {
+      imgs = e.images;
+    } else if (
+      e.$type === "app.bsky.embed.recordWithMedia#view" &&
+      e.media &&
+      e.media.$type === "app.bsky.embed.images#view"
+    ) {
+      imgs = e.media.images;
+    }
+    if (!imgs || !imgs.length) continue;
+    const text = (post.record && post.record.text) || "";
+    const createdAt = (post.record && post.record.createdAt) || post.indexedAt || "";
+    const authorHandle = (post.author && post.author.handle) || handle;
+    const url = postUrlFor(authorHandle, post.uri);
+    for (let i = 0; i < imgs.length; i++) {
+      out.push({
+        url: imgs[i].fullsize,
+        thumb: imgs[i].thumb,
+        alt: imgs[i].alt || "",
+        text: text,
+        createdAt: createdAt,
+        postUrl: url,
+        idxInPost: i,
+        countInPost: imgs.length,
+      });
+    }
+  }
+  return out;
+}
+
+async function loadMore() {
+  if (loading || exhausted) return;
+  loading = true;
+  loadingEl.classList.add("show");
+  try {
+    const data = await fetchFeed(cursor);
+    const feed = data.feed || [];
+    const newImgs = flatten(feed);
+    images.push(...newImgs);
+    cursor = data.cursor || null;
+    if (!cursor || feed.length === 0) exhausted = true;
+    updateNavState();
+  } catch (e) {
+    console.error("feed load failed", e);
+    showToast("Error: " + e.message);
+    postTextEl.textContent = "Error loading feed for @" + handle + ": " + e.message;
+  } finally {
+    loading = false;
+    loadingEl.classList.remove("show");
+    render();
+  }
+}
+
+// === render ===
+function fmtDate(s) {
+  if (!s) return "";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+let renderToken = 0;
+function render() {
+  if (!images.length) {
+    postTextEl.textContent = loading ? "Loading…" : "No photos yet.";
+    altTextEl.textContent = "";
+    metaEl.textContent = "";
+    photoEl.removeAttribute("src");
+    counterEl.textContent = "";
+    progressEl.style.width = "0%";
+    return;
+  }
+  currentIdx = Math.max(0, Math.min(images.length - 1, currentIdx));
+  const img = images[currentIdx];
+
+  // image with fade-on-load
+  const myToken = ++renderToken;
+  photoEl.classList.add("loading");
+  photoEl.onload = () => {
+    if (myToken === renderToken) photoEl.classList.remove("loading");
+  };
+  photoEl.onerror = () => {
+    if (myToken === renderToken) {
+      photoEl.classList.remove("loading");
+      showToast("Image failed to load");
+    }
+  };
+  if (photoEl.src !== img.url) photoEl.src = img.url;
+  else photoEl.classList.remove("loading");
+  photoEl.alt = img.alt;
+  exitZoomIfActive();
+
+  // caption
+  postTextEl.textContent = img.text || "";
+  altTextEl.textContent = img.alt ? "“" + img.alt + "”" : "";
+  const inPost = img.countInPost > 1 ? " · img " + (img.idxInPost + 1) + "/" + img.countInPost : "";
+  metaEl.innerHTML =
+    "<span>" + escapeHtml(fmtDate(img.createdAt) + inPost) + "</span>" +
+    '<a href="' + escapeAttr(img.postUrl) + '" target="_blank" rel="noreferrer">open on bsky ↗</a>' +
+    '<a href="' + escapeAttr(img.url) + '" target="_blank" rel="noreferrer">image only ↗</a>';
+
+  counterEl.textContent = (currentIdx + 1) + " / " + images.length + (exhausted ? "" : "+");
+  progressEl.style.width = ((currentIdx + 1) / images.length) * 100 + "%";
+
+  // prefetch ahead
+  for (let i = 1; i <= PREFETCH_AHEAD; i++) {
+    const j = currentIdx + i;
+    if (j < images.length) {
+      const p = new Image();
+      p.src = images[j].url;
+    }
+  }
+
+  // persist position
+  try { localStorage.setItem("bz_pos_" + handle, String(currentIdx)); } catch (_) {}
+
+  updateNavState();
+
+  // proactively load more when near the end
+  if (currentIdx >= images.length - LOAD_MORE_THRESHOLD && !exhausted && !loading) {
+    loadMore();
+  }
+}
+
+function updateNavState() {
+  prevBtn.disabled = currentIdx <= 0;
+  nextBtn.disabled = currentIdx >= images.length - 1 && exhausted;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+// === navigation ===
+function next() {
+  if (currentIdx < images.length - 1) { currentIdx++; render(); }
+  else if (!exhausted) loadMore();
+}
+function prev() {
+  if (currentIdx > 0) { currentIdx--; render(); }
+}
+function jumpToNewest() { currentIdx = 0; render(); }
+async function jumpToOldest() {
+  while (!exhausted) await loadMore();
+  currentIdx = images.length - 1; render();
+}
+
+// === pan/zoom ===
+let zoomMode = false;
+let panState = null;
+
+function enterZoom() {
+  zoomMode = true;
+  photoEl.classList.add("zoomed");
+  photoEl.style.left = "0px";
+  photoEl.style.top = "0px";
+}
+function exitZoomIfActive() {
+  if (!zoomMode) return;
+  zoomMode = false;
+  photoEl.classList.remove("zoomed");
+  photoEl.style.left = "";
+  photoEl.style.top = "";
+}
+function toggleZoom() {
+  if (zoomMode) exitZoomIfActive();
+  else enterZoom();
+}
+
+photoEl.addEventListener("click", (e) => {
+  if (!zoomMode) { e.preventDefault(); enterZoom(); }
+});
+photoEl.addEventListener("mousedown", (e) => {
+  if (!zoomMode) return;
+  e.preventDefault();
+  panState = {
+    startX: e.clientX, startY: e.clientY,
+    origLeft: parseFloat(photoEl.style.left) || 0,
+    origTop: parseFloat(photoEl.style.top) || 0,
+  };
+  photoEl.classList.add("dragging");
+});
+window.addEventListener("mousemove", (e) => {
+  if (!panState) return;
+  photoEl.style.left = panState.origLeft + (e.clientX - panState.startX) + "px";
+  photoEl.style.top = panState.origTop + (e.clientY - panState.startY) + "px";
+});
+window.addEventListener("mouseup", () => {
+  if (panState) {
+    photoEl.classList.remove("dragging");
+    panState = null;
+  }
+});
+// scroll wheel in zoom mode scrolls the image; outside zoom: prev/next
+$("stage").addEventListener("wheel", (e) => {
+  if (zoomMode) return; // let it bubble; pan with drag in zoom
+  e.preventDefault();
+  if (e.deltaY > 0 || e.deltaX > 0) next();
+  else if (e.deltaY < 0 || e.deltaX < 0) prev();
+}, { passive: false });
+
+// === fullscreen ===
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+
+// === caption toggle ===
+function toggleCaption() {
+  document.body.classList.toggle("no-caption");
+}
+
+// === toast ===
+let toastTimer = null;
+function showToast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1800);
+}
+
+// === keyboard ===
+document.addEventListener("keydown", (e) => {
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  switch (e.key) {
+    case "ArrowRight":
+    case " ":
+    case "PageDown":
+      e.preventDefault(); next(); break;
+    case "ArrowLeft":
+    case "PageUp":
+      e.preventDefault(); prev(); break;
+    case "Home":
+      e.preventDefault(); jumpToNewest(); break;
+    case "End":
+      e.preventDefault(); jumpToOldest(); break;
+    case "f": case "F":
+      toggleFullscreen(); break;
+    case "z": case "Z":
+      toggleZoom(); break;
+    case "c": case "C":
+      toggleCaption(); break;
+    case "s": case "S":
+      settingsEl.classList.toggle("show");
+      if (settingsEl.classList.contains("show")) handleInput.focus();
+      break;
+    case "Escape":
+      if (zoomMode) exitZoomIfActive();
+      else if (settingsEl.classList.contains("show")) settingsEl.classList.remove("show");
+      break;
+    case "o": case "O": {
+      const img = images[currentIdx];
+      if (img) window.open(img.postUrl, "_blank");
+      break;
+    }
+  }
+});
+
+// === buttons ===
+prevBtn.addEventListener("click", prev);
+nextBtn.addEventListener("click", next);
+$("handle-go").addEventListener("click", () => {
+  const v = handleInput.value.trim().replace(/^@/, "");
+  if (!v) return;
+  handle = v;
+  try { localStorage.setItem("bz_handle", handle); } catch (_) {}
+  images = []; currentIdx = 0; cursor = null; exhausted = false;
+  settingsEl.classList.remove("show");
+  document.title = "Zoom: " + handle;
+  loadMore();
+});
+handleInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("handle-go").click();
+});
+
+// === init ===
+handleInput.value = handle;
+document.title = "Zoom: " + handle;
+
+(async function init() {
+  await loadMore();
+  // best-effort position restore (only if it still fits in the first page)
+  const savedPos = parseInt(localStorage.getItem("bz_pos_" + handle), 10);
+  if (!isNaN(savedPos) && savedPos > 0 && savedPos < images.length) {
+    currentIdx = savedPos;
+  }
+  render();
+})();
+</script>
+</body>
+</html>
