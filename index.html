@@ -31,13 +31,39 @@
     border-bottom: 1px solid var(--bar-border);
     padding: 10px 14px;
     display: grid;
-    grid-template-columns: 40px 1fr 40px;
-    gap: 10px;
+    grid-template-columns: 40px 1fr auto auto 40px;
+    gap: 12px;
     align-items: center;
     max-height: 35vh;
+    overflow: hidden;
+  }
+  #caption {
+    min-width: 0;
+    line-height: 1.45;
+    max-height: calc(35vh - 20px);
     overflow-y: auto;
   }
-  #caption { min-width: 0; line-height: 1.45; }
+  #meta {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+  }
+  #meta a { color: var(--accent); text-decoration: none; }
+  #meta a:hover { text-decoration: underline; }
+  #meta .date { color: #ccc; font-variant-numeric: tabular-nums; }
+  #day-circle {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: none;
+    align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700;
+    color: rgba(0,0,0,0.85);
+    user-select: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  }
   #post-text { font-size: 14px; white-space: pre-wrap; word-wrap: break-word; }
   #alt-text {
     font-size: 13px; color: #bdbdbd;
@@ -45,12 +71,6 @@
     border-left: 2px solid #333; padding-left: 8px;
   }
   #alt-text:empty { display: none; }
-  #meta {
-    font-size: 11px; color: var(--muted); margin-top: 6px;
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
-  }
-  #meta a { color: var(--accent); text-decoration: none; }
-  #meta a:hover { text-decoration: underline; }
   .nav-btn {
     background: transparent; color: var(--fg); border: none;
     font-size: 28px; line-height: 1; cursor: pointer; padding: 6px 4px;
@@ -81,10 +101,10 @@
   #photo.loading { opacity: 0.25; }
   #photo.zoomed {
     max-width: none; max-height: none;
-    cursor: grab;
-    position: relative;
+    cursor: zoom-out;
+    position: absolute;
+    top: 0; left: 0;
   }
-  #photo.zoomed.dragging { cursor: grabbing; }
   #counter {
     position: absolute;
     bottom: 10px; right: 14px;
@@ -181,8 +201,9 @@
     <div id="caption">
       <div id="post-text"></div>
       <div id="alt-text"></div>
-      <div id="meta"></div>
     </div>
+    <div id="meta"></div>
+    <div id="day-circle"></div>
     <button id="next-btn" class="nav-btn" title="Next (→)">›</button>
   </div>
   <div id="stage">
@@ -224,6 +245,7 @@ const photoEl = $("photo");
 const postTextEl = $("post-text");
 const altTextEl = $("alt-text");
 const metaEl = $("meta");
+const dayCircleEl = $("day-circle");
 const counterEl = $("counter");
 const loadingEl = $("loading");
 const progressEl = $("progressbar").firstElementChild;
@@ -232,6 +254,18 @@ const nextBtn = $("next-btn");
 const settingsEl = $("settings");
 const handleInput = $("handle-input");
 const toastEl = $("toast");
+
+// === day-of-week palette (calendar order: Sun..Sat) ===
+// Chosen so adjacent days never share a hue family.
+const DAY_COLORS = [
+  { label: "Su", color: "#e63946" }, // Sun — red
+  { label: "M",  color: "#2ec4b6" }, // Mon — teal
+  { label: "Tu", color: "#f72585" }, // Tue — hot pink
+  { label: "W",  color: "#a4d63a" }, // Wed — lime
+  { label: "Th", color: "#9b5de5" }, // Thu — purple
+  { label: "F",  color: "#f59f00" }, // Fri — orange
+  { label: "Sa", color: "#1d6fb8" }, // Sat — blue
+];
 
 // === api ===
 async function fetchFeed(cur) {
@@ -332,7 +366,8 @@ function render() {
   if (!images.length) {
     postTextEl.textContent = loading ? "Loading…" : "No photos yet.";
     altTextEl.textContent = "";
-    metaEl.textContent = "";
+    metaEl.innerHTML = "";
+    dayCircleEl.style.display = "none";
     photoEl.removeAttribute("src");
     counterEl.textContent = "";
     progressEl.style.width = "0%";
@@ -361,11 +396,24 @@ function render() {
   // caption
   postTextEl.textContent = img.text || "";
   altTextEl.textContent = img.alt ? "“" + img.alt + "”" : "";
+
+  // meta cluster (top bar, right of caption): [links] [date] [circle]
   const inPost = img.countInPost > 1 ? " · img " + (img.idxInPost + 1) + "/" + img.countInPost : "";
   metaEl.innerHTML =
-    "<span>" + escapeHtml(fmtDate(img.createdAt) + inPost) + "</span>" +
     '<a href="' + escapeAttr(img.postUrl) + '" target="_blank" rel="noreferrer">open on bsky ↗</a>' +
-    '<a href="' + escapeAttr(img.url) + '" target="_blank" rel="noreferrer">image only ↗</a>';
+    '<a href="' + escapeAttr(img.url) + '" target="_blank" rel="noreferrer">image only ↗</a>' +
+    '<span class="date">' + escapeHtml(fmtDate(img.createdAt) + inPost) + '</span>';
+
+  // day-of-week circle (top-right corner)
+  const dt = new Date(img.createdAt);
+  if (!isNaN(dt.getTime())) {
+    const dInfo = DAY_COLORS[dt.getDay()];
+    dayCircleEl.style.background = dInfo.color;
+    dayCircleEl.textContent = dInfo.label;
+    dayCircleEl.style.display = "flex";
+  } else {
+    dayCircleEl.style.display = "none";
+  }
 
   counterEl.textContent = (currentIdx + 1) + " / " + images.length + (exhausted ? "" : "+");
   progressEl.style.width = ((currentIdx + 1) / images.length) * 100 + "%";
@@ -417,14 +465,31 @@ async function jumpToOldest() {
 }
 
 // === pan/zoom ===
+// When zoomed, the photo is shown at natural size and the mouse position
+// over the stage drives the pan: pointer near top-left of stage shows the
+// top-left of the image, pointer near bottom-right shows the bottom-right.
 let zoomMode = false;
-let panState = null;
+let lastMouseX = window.innerWidth / 2;
+let lastMouseY = window.innerHeight / 2;
+
+function updateFollowPan() {
+  if (!zoomMode) return;
+  const stage = $("stage");
+  const rect = stage.getBoundingClientRect();
+  const px = Math.max(0, Math.min(1, (lastMouseX - rect.left) / rect.width));
+  const py = Math.max(0, Math.min(1, (lastMouseY - rect.top) / rect.height));
+  const imgW = photoEl.naturalWidth;
+  const imgH = photoEl.naturalHeight;
+  const overflowX = Math.max(0, imgW - rect.width);
+  const overflowY = Math.max(0, imgH - rect.height);
+  photoEl.style.left = (-overflowX * px) + "px";
+  photoEl.style.top = (-overflowY * py) + "px";
+}
 
 function enterZoom() {
   zoomMode = true;
   photoEl.classList.add("zoomed");
-  photoEl.style.left = "0px";
-  photoEl.style.top = "0px";
+  updateFollowPan();
 }
 function exitZoomIfActive() {
   if (!zoomMode) return;
@@ -439,32 +504,17 @@ function toggleZoom() {
 }
 
 photoEl.addEventListener("click", (e) => {
-  if (!zoomMode) { e.preventDefault(); enterZoom(); }
-});
-photoEl.addEventListener("mousedown", (e) => {
-  if (!zoomMode) return;
   e.preventDefault();
-  panState = {
-    startX: e.clientX, startY: e.clientY,
-    origLeft: parseFloat(photoEl.style.left) || 0,
-    origTop: parseFloat(photoEl.style.top) || 0,
-  };
-  photoEl.classList.add("dragging");
+  toggleZoom();
 });
 window.addEventListener("mousemove", (e) => {
-  if (!panState) return;
-  photoEl.style.left = panState.origLeft + (e.clientX - panState.startX) + "px";
-  photoEl.style.top = panState.origTop + (e.clientY - panState.startY) + "px";
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+  if (zoomMode) updateFollowPan();
 });
-window.addEventListener("mouseup", () => {
-  if (panState) {
-    photoEl.classList.remove("dragging");
-    panState = null;
-  }
-});
-// scroll wheel in zoom mode scrolls the image; outside zoom: prev/next
+// scroll wheel: prev/next when not zoomed; in zoom mode, let the browser ignore it.
 $("stage").addEventListener("wheel", (e) => {
-  if (zoomMode) return; // let it bubble; pan with drag in zoom
+  if (zoomMode) return;
   e.preventDefault();
   if (e.deltaY > 0 || e.deltaX > 0) next();
   else if (e.deltaY < 0 || e.deltaX < 0) prev();

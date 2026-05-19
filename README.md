@@ -2,7 +2,7 @@
 
 A one-file browser for [@bioreconstruct.bsky.social](https://bsky.app/profile/bioreconstruct.bsky.social)'s aerial photos — fullscreen image, caption pinned at top, arrow keys to fly through history.
 
-Built because Bluesky's normal photo viewer hides the caption when you zoom in, which is a real pain when bio's captions are the whole point.
+Built because Bluesky's normal photo viewer hides the caption when you zoom in. The photos are the point; the captions are the context you need to make sense of them.
 
 ## Use it
 
@@ -18,7 +18,7 @@ That's it. Single file, no install, no build step, no server. Opens straight fro
 | ← / → | Previous / next photo |
 | Space | Next |
 | Home / End | Jump to newest / oldest |
-| Z | Toggle 100% zoom (drag to pan) |
+| Z | Toggle 100% zoom (move the mouse to pan) |
 | C | Hide / show caption bar |
 | F | Fullscreen |
 | O | Open the original post on Bluesky |
