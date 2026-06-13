@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bio Zoom</title>
+<title>Bio-Zome</title>
 <style>
   :root {
     --bg: #000;
@@ -587,7 +587,7 @@ $("handle-go").addEventListener("click", () => {
   try { localStorage.setItem("bz_handle", handle); } catch (_) {}
   images = []; currentIdx = 0; cursor = null; exhausted = false;
   settingsEl.classList.remove("show");
-  document.title = "Zoom: " + handle;
+  document.title = "Zome: " + handle;
   loadMore();
 });
 handleInput.addEventListener("keydown", (e) => {
@@ -596,7 +596,7 @@ handleInput.addEventListener("keydown", (e) => {
 
 // === init ===
 handleInput.value = handle;
-document.title = "Zoom: " + handle;
+document.title = "Zome: " + handle;
 
 (async function init() {
   await loadMore();
